@@ -1,138 +1,108 @@
-= Managing an Application from GitHub
+Before we start, let’s take a look at what tuned profiles are available
+to install in case there is a better option for Microsoft SQL Server:
 
-In the first half of this workshop, we packaged an application into this portable container format manually using rpms.
-In the second half, we will consider that you may want to manage software from GitHub or some kind of software versioning application.
-Rather than installing rpms, we have individual software files and pull them out of that version control into a group of systems.
-
-== Install RHEL 8 UBI
-
-In this lab, we will be using a different Red Hat Enterprise Linux version in my container. 
-
-. Verify the host system release 
-
-+
 [source,bash]
 ----
-cat /etc/redhat-release
+dnf list tuned-profiles*
 ----
-+ 
-NOTE: The `bastion` system is Red Hat Enterprise Linux 9, and when you built the previous container, you used the UBI9 image. This means both the image and the container were built off the same Red Hat Enterprise Linux packages. 
 
-. As we did previously in this lab, Use `buildah from` to pull down the Red Hat Enterprise Linux 8 UBI.
+root@rhel:~# dnf list tuned-profiles* Updating Subscription Management
+repositories. Last metadata expiration check: 0:22:07 ago on Mon 06 Feb
+2023 08:35:50 PM UTC. Available Packages tuned-profiles-atomic.noarch
+2.19.0-1.el9 rhel-9-for-x86_64-appstream-rpms
+tuned-profiles-cpu-partitioning.noarch 2.19.0-1.el9
+rhel-9-for-x86_64-baseos-rpms tuned-profiles-mssql.noarch 2.19.0-1.el9
+rhel-9-for-x86_64-appstream-rpms tuned-profiles-oracle.noarch
+2.19.0-1.el9 rhel-9-for-x86_64-appstream-rpms
+tuned-profiles-postgresql.noarch 2.19.0-1.el9
+rhel-9-for-x86_64-appstream-rpms tuned-profiles-spectrumscale.noarch
+2.19.0-1.el9 rhel-9-for-x86_64-appstream-rpms root@rhel:~#
 
-+
+....
+
+Great news!  It looks like there is a tuned-profile specifically for mssql.  Lets go ahead and install it and see what it includes
+
+```bash
+dnf install tuned-profiles-mssql -y
+....
+
+Lets take a look at the contents of our new tuned profile:
+
 [source,bash]
 ----
-buildah from registry.access.redhat.com/ubi8/ubi
+cat /usr/lib/tuned/mssql/tuned.conf
 ----
 
-NOTE: Because you already pulled one image named `ubi-working-container` this one is called `ubi-working-container-1`. 
+== 
 
-[#prerequisites]
-== Install Prerequisites
+== tuned configuration
 
-Now that you have a working container, you will use the same process as before installing all the prerequisites, changing config files, and manipulating the contents of this container to be in the desired state.
+== 
 
-The software you will install is a JavaScript-based game that runs on a web browser. As before in the lab, use dnf to install software inside the container. 
+[main] summary=Optimize for Microsoft SQL Server
+include=throughput-performance
 
-. Use `buildah run` and install Apache (`httpd`) into the `ubi-working-container-1` container. 
-+
+[cpu] force_latency=5
+
+[vm] # For multi-instance SQL deployments use '`madvise`' instead of
+'`always`' transparent_hugepages=always
+
+[sysctl] vm.swappiness=1 vm.dirty_background_ratio=3 vm.dirty_ratio=80
+vm.dirty_expire_centisecs=500 vm.dirty_writeback_centisecs=100
+vm.max_map_count=1600000 net.core.rmem_default=262144
+net.core.rmem_max=4194304 net.core.wmem_default=262144
+net.core.wmem_max=1048576 kernel.numa_balancing=0
+
+[scheduler] sched_latency_ns=60000000 sched_migration_cost_ns=500000
+sched_min_granularity_ns=15000000 sched_wakeup_granularity_ns=2000000
+
+....
+
+You will notice that the mssql profile is using `include` to bring in the settings from the throughput-performance profile and then updating tunables which are specific to Microsoft SQL Server
+
+You will also notice that under the [vm] heading there is a comment which states that if you are running a multi-instance SQL deployment, you want to use `madvise` instead of `always` for the transparent_hugepages setting
+
+Since the DBA informed us we will be doing that, let's go ahead and update that parameter via a custom tuned profile
+
+First we will create the directory for the new TuneD profile
+
+```bash
+mkdir /etc/tuned/mssql-multi
+....
+
+Next we will create a tuned.conf that includes the mssql profile and
+overrides transparent_hugepages to `+madvise+`
+
+Copy and paste the command below into *> Shell*.
+
 [source,bash]
 ----
-buildah run ubi-working-container-1 -- dnf -y install httpd
+cat << EOF > /etc/tuned/mssql-multi/tuned.conf
+[main]
+summary=MSSQL profile for multi-instance
+include=mssql
+
+[vm]
+transparent_hugepages=madvise
+
+EOF
 ----
 
-== Enable Service
+Let’s review our new tuned.conf to ensure it looks correct
 
-The next thing to do is to use a systemctl to enable the service. The ubi-init provides full systemd service to the container.
-This will start up any of the services that are enabled. 
-
-. Enable the `httpd` service using `buildah run`
-
-+
 [source,bash]
 ----
-buildah run ubi-working-container-1 -- systemctl enable httpd
+cat /etc/tuned/mssql-multi/tuned.conf
 ----
 
-NOTE: The UBI standard image doesn't have systemd installed on it by default. The `ubi-init` container image does include systemd. Plan accordingly to which image you use to build applications.  
+root@rhel:~# cat /etc/tuned/mssql-multi/tuned.conf [main] summary=MSSQL
+profile for multi-instance include=mssql
 
-== Explore Source Materials
+[vm] transparent_hugepages=madvise
 
-A GitHub repository has already been synchronized to `/home/devops/clumsy-bird/` This repository contains the configurations for your application.
+root@rhel:~# ```
 
-. Verify the repository is cloned inside the `/home/devops/` directory
-+
-[source,bash]
-----
-cd /home/devops/
-----
+Everything looks good!
 
-+
-[source,bash]
-----
-git clone https://github.com/ellisonleao/clumsy-bird
-----
-+
-NOTE: The output states that the software has already been checked out. 
-+
-. Explore the JavaScript contents, index files, and everything else that we need for this web-based JavaScript software.
-+
-[source,bash,role=execute]
-----
-ls clumsy-bird
-----
-
-== Add Source Materials to Container
-
-. Now that you have verified the source materials exist, you will put the software inside of my container image using the `buildah copy` command.
-+
-[source,bash]
-----
-buildah copy ubi-working-container-1 clumsy-bird /var/www/html
-----
-
-[#container]
-== Enable Container in Background
-
-In the previous section of this lab, you ran the game natively through interactive mode. Because you are now building a web application you will need to run the container in the background and access it through a web address. 
-
-. Execute `buildah config` to specify a port and initialize the container. 
-
-+
-[source,bash]
-----
-buildah config --port 80 --cmd "/usr/sbin/init" ubi-working-container-1
-----
-
-NOTE: The command makes a configuration change to this container. I'm configuring this container to accept connections to its port 80. When the container starts up, it should run the init command, which, in this case, is going to be the Apache daemon right from earlier when I enabled it.
-
-== Commit Container and Deploy
-
-. Now that we have a container in a working configured state, it is time to make that permanent by committing it to a container image called `clumsy-bird`
-+
-[source,bash]
-----
-buildah commit ubi-working-container-1 clumsy-bird
-----
-
-. Verify that the image was created with `podman`
-+
-[source,bash]
-----
-podman images
-----
-+
-. Run the container Now it's time to run the container. 
-+
-[source,bash]
-----
-podman run -d -p 8500:80 clumsy-bird
-----
-
-== Verify Application
-
-Verify that the application is running by navigating to
-
-http://bastion.{guid}.example.opentlc.com:8500
-
+In our next lesson, we are going to activate the new profile and
+validate our settings

@@ -1,149 +1,86 @@
-= Building an Application with rpms
+As we mentioned in the beginning, TuneD is distributed with a number of
+predefined profiles.
 
-== Downloading the UBI
+A profile is a set of rules that defines certain system parameters such
+as disk settings, kernel parameters, network optimization settings, and
+many other aspects of the system.
 
-In this lab, you will be installing software into the container 
-image running as an interactive application. To do this you will
-need `yum`, but do not need `systemd` for managing services within the
-container environment.  For that reason, you will be using the *Standard*
-UBI image (as opposed to the Minimal or Multi-service images).
+During the installation, a profile for your system is automatically
+selected based on the system information. For example, it may detect
+that you are a virtual-guest and it will select that profile for you.
+However, you may decide that you would rather run something else that
+has a specific performance or power profile instead.
 
-Using the "buildah from" command will download and meld the container image. This particular image we are using is the Red Hat Universal Base Image or UBI. From the ourput of the command, you will notice that we are pulling down the latest one, which is for RHEL 9. 
+Let’s take a look at what profiles are included by default:
 
-. Execute the  download the Standard UBI
-image from Red Hat's registry.
-
-+
-[source,sh,role=execute]
-----
-buildah from registry.access.redhat.com/ubi9/ubi
-----
-
-[#repositories]
-== Installing Repositories
-In this lab, you are going to containerize a software package that is already
-packaged in RPM format and stored in the Extra Packages for Enterprise Linux
-(EPEL) repository.
-
-Software often has requirements for prerequisite software that must be installed
-on the machine for it to work properly.  `yum` will resolve those
-dependencies for you, as long as it can locate the required packages in
-repositories defined on the machine.  The Red Hat Universal Base Image (UBI)
-downloaded in the previous step has access to some Red Hat Enterprise Linux
-repositories.  However, the target package for the lab is from EPEL.  
-
-. In the command below, `buildah` is going to run a command on the
-`ubi-working-container` image.  The `--` indicates that the command should be
-executed from within the container, which means the results will be applied into
-the container image.  Lastly, you are providing the `yum` command to install a
-package that defines all of the repositories from EPEL, `epel-release-latest-9`.
-
-+
 [source,bash]
 ----
-buildah run ubi-working-container -- yum -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
-----
-
-
-. You can verify that the above command did not install the RPM on the host system.
-
-+
-[source,bash]
-----
-rpm -q epel-release
-----
-
-NOTE: If your repository configurations are not distributed as an RPM, but instead as
-individual `.repo` files, you could use the `buildah copy` command to copy
-files from the host operating system into the container image.  You will see
-an example of using `buildah copy` later in this lab.
-
-[#software]
-== Installing Software
-
-
-. Now that the yum repositories are defined within the container, execute 
-another `yum install`, within the container, to install the target
-software: `moon-buggy`.
-
-+
-[source,bash]
-----
-buildah run ubi-working-container -- yum -y install moon-buggy
-----
-
-
-== Committing the Container Image
-
-. At this point, the container is configured.  It is time to transition from a
-working container into a committed image.  In the command below, you will use
-the `buildah` command to commit the working container to an image called:
-`moon-buggy`.
-
-+
-[source,bash]
-----
-buildah commit ubi-working-container moon-buggy
-----
-
-+
-. The output of `podman image list` should confirm the image was created.
-
-+
-[source,bash]
-----
-podman image list
-----
-
-
-== Deploy the Container
-
-Now the software has been installed and a new container image created.  It is
-time to spawn a runtime of the container image and validate the software.  The
-software we are using is a command line command.  
-
-. When you `run` the container,
-it will be in interactive (`-it`) mode, based on the `moon-buggy` container
-image and the command run interactively will be `/usr/bin/moon-buggy`.
-
-+
-[source,bash]
-----
-podman run -it moon-buggy /usr/bin/moon-buggy
-----
-
-+
-[source,textinfo]
+tuned-adm list profiles
 ----
 
 <<< OUTPUT ABRIDGED >>>
-               MM     MM   OOOOO    OOOOO   NN     N
-               M M   M M  O     O  O     O  N N    N
-               M  M M  M  O     O  O     O  N  N   N
-               M   M   M  O     O  O     O  N   N  N
-               M       M  O     O  O     O  N    N N
-               M       M   OOOOO    OOOOO   N     NN
 
-                     BBBBBB   U     U   GGGGG    GGGGG   Y     Y
-                     B     B  U     U  G     G  G     G   Y   Y
-                     BBBBBB   U     U  G        G          Y Y
-                     B     B  U     U  G   GGG  G   GGG     Y
-                     B     B  U     U  G     G  G     G    Y
-                     BBBBBB    UUUUU    GGGGG    GGGGG   YY
+Available profiles: - accelerator-performance - Throughput performance
+based tuning with disabled higher latency STOP states - balanced -
+General non-specialized tuned profile - desktop - Optimize for the
+desktop use-case - hpc-compute - Optimize for HPC compute workloads -
+intel-sst - Configure for Intel Speed Select Base Frequency -
+latency-performance - Optimize for deterministic performance at the cost
+of increased power consumption - network-latency - Optimize for
+deterministic performance at the cost of increased power consumption,
+focused on low latency network performance - network-throughput -
+Optimize for streaming network throughput, generally only necessary on
+older CPUs or 40G+ networks - optimize-serial-console - Optimize for
+serial console use. - powersave - Optimize for low power consumption -
+throughput-performance - Broadly applicable tuning that provides
+excellent performance across a variety of common server workloads -
+virtual-guest - Optimize for running inside a virtual guest -
+virtual-host - Optimize for running KVM guests Current active profile:
+virtual-guest
 
 <<< OUTPUT ABRIDGED >>>
-----
 
-. You can now play the Moon Buggy game, which is a text-based version of the
-popular Moon Patrol.  When you are finished, use the `q` command to quit the
-game, which will terminate the container.
+....
 
-+
-Alternatively, you can use `podman` to kill the running container from
-*Terminal 2*.
+It looks like our active profile is `virtual-guest` as stated on the last line, and there are a handful of profiles available which are listed under `Available profiles`
 
-+
-[source,bash]
-----
-podman kill $(podman ps | grep -v CONTAINER | cut -f1 -d" " )
-----
+The default profiles are stored in a directory under `/usr/lib/tuned/$profilename`, so lets go ahead and see what the virtual-guest profile includes:
+
+
+```bash
+cat /usr/lib/tuned/virtual-guest/tuned.conf | grep -v \^#
+....
+
+<<< OUTPUT ABRIDGED >>>
+
+[main] summary=Optimize for running inside a virtual guest
+include=throughput-performance
+
+[sysctl] vm.dirty_ratio = 30 vm.swappiness = 30
+
+<<< OUTPUT ABRIDGED >>>
+
+....
+
+One of the great things about TuneD profiles are the ability to inherit tunings from another profile. You will notice that on the output there is a line that starts with `include`.  This means you will bring in all the settings for the throughput-performance profile in this virtual-guest profile and then update two values `vm.dirty_ratio` and `vm.swappiness` which are defined under the [sysctl] heading
+
+
+Lets take a look at what is in the `throughput-performance` profile
+
+
+```bash
+cat /usr/lib/tuned/throughput-performance/tuned.conf | grep -v \^#
+....
+
+You will notice that the throughput-performance profile has a lot of
+tunings, including the two mentioned in the virtual-guest profile
+
+The benefit of using include in our profiles is that we can inherit all
+these settings and then just override the few we want to update in our
+new profile
+
+The child profile settings will take precedence over the duplicate
+tunings in the parent profile
+
+Lets move forward with the next step and create our own TuneD profile
+and customize it for our use case
